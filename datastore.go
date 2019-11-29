@@ -10,11 +10,9 @@ import (
 	badger "github.com/dgraph-io/badger/v2"
 	ds "github.com/ipfs/go-datastore"
 	dsq "github.com/ipfs/go-datastore/query"
-	logger "github.com/ipfs/go-log"
 	goprocess "github.com/jbenet/goprocess"
+	"go.uber.org/zap"
 )
-
-var log = logger.Logger("badger")
 
 // ErrClosed is an error message returned when the datastore is no longer open
 var ErrClosed = errors.New("datastore closed")
@@ -31,6 +29,8 @@ type Datastore struct {
 	gcDiscardRatio float64
 	gcSleep        time.Duration
 	gcInterval     time.Duration
+
+	logger *zap.Logger
 }
 
 // Implements the datastore.Txn interface, enabling transaction support for
@@ -38,7 +38,6 @@ type Datastore struct {
 type txn struct {
 	ds  *Datastore
 	txn *badger.Txn
-
 	// Whether this transaction has been implicitly created as a result of a direct Datastore
 	// method invocation.
 	implicit bool
@@ -85,7 +84,7 @@ var _ ds.GCDatastore = (*Datastore)(nil)
 // NewDatastore creates a new badger datastore.
 //
 // DO NOT set the Dir and/or ValuePath fields of opt, they will be set for you.
-func NewDatastore(path string, options *Options) (*Datastore, error) {
+func NewDatastore(path string, logger *zap.Logger, options *Options) (*Datastore, error) {
 	// Copy the options because we modify them.
 	var opt badger.Options
 	var gcDiscardRatio float64
@@ -111,7 +110,8 @@ func NewDatastore(path string, options *Options) (*Datastore, error) {
 
 	opt.Dir = path
 	opt.ValueDir = path
-	opt.Logger = log
+	// TODO(bonedaddy): fix
+	//opt.Logger = log
 
 	kv, err := badger.Open(opt)
 	if err != nil {
@@ -127,6 +127,7 @@ func NewDatastore(path string, options *Options) (*Datastore, error) {
 		gcDiscardRatio: gcDiscardRatio,
 		gcSleep:        gcSleep,
 		gcInterval:     gcInterval,
+		logger:         logger.Named("badgerds"),
 	}
 
 	// Start the GC process if requested.
@@ -156,7 +157,7 @@ func (d *Datastore) periodicGC() {
 			case ErrClosed:
 				return
 			default:
-				log.Errorf("error during a GC cycle: %s", err)
+				d.logger.Error("gc cycle error", zap.Error(err))
 				// Not much we can do on a random error but log it and continue.
 				gcTimeout.Reset(d.gcInterval)
 			}

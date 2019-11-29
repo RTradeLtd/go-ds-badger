@@ -13,6 +13,7 @@ import (
 	ds "github.com/ipfs/go-datastore"
 	dsq "github.com/ipfs/go-datastore/query"
 	dstest "github.com/ipfs/go-datastore/test"
+	"go.uber.org/zap/zaptest"
 )
 
 var testcases = map[string]string{
@@ -38,7 +39,7 @@ func newDS(t *testing.T) (*Datastore, func()) {
 		t.Fatal(err)
 	}
 
-	d, err := NewDatastore(path, nil)
+	d, err := NewDatastore(path, zaptest.NewLogger(t), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -530,7 +531,7 @@ func TestDiskUsage(t *testing.T) {
 	}
 	defer os.RemoveAll(path)
 
-	d, err := NewDatastore(path, nil)
+	d, err := NewDatastore(path, zaptest.NewLogger(t), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -541,7 +542,7 @@ func TestDiskUsage(t *testing.T) {
 	addTestCases(t, d, testcases)
 	d.Close()
 
-	d, err = NewDatastore(path, nil)
+	d, err = NewDatastore(path, zaptest.NewLogger(t), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -559,7 +560,7 @@ func TestTxnDiscard(t *testing.T) {
 	}
 	defer os.RemoveAll(path)
 
-	d, err := NewDatastore(path, nil)
+	d, err := NewDatastore(path, zaptest.NewLogger(t), nil)
 	defer os.RemoveAll(path)
 	if err != nil {
 		t.Fatal(err)
@@ -592,7 +593,7 @@ func TestTxnCommit(t *testing.T) {
 	}
 	defer os.RemoveAll(path)
 
-	d, err := NewDatastore(path, nil)
+	d, err := NewDatastore(path, zaptest.NewLogger(t), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -627,7 +628,7 @@ func TestTxnBatch(t *testing.T) {
 	}
 	defer os.RemoveAll(path)
 
-	d, err := NewDatastore(path, nil)
+	d, err := NewDatastore(path, zaptest.NewLogger(t), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -681,7 +682,7 @@ func TestTTL(t *testing.T) {
 	}
 	defer os.RemoveAll(path)
 
-	d, err := NewDatastore(path, nil)
+	d, err := NewDatastore(path, zaptest.NewLogger(t), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
