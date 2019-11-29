@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	badger "github.com/dgraph-io/badger"
+	badger "github.com/dgraph-io/badger/v2"
 	ds "github.com/ipfs/go-datastore"
 	dsq "github.com/ipfs/go-datastore/query"
 	logger "github.com/ipfs/go-log"
@@ -16,8 +16,10 @@ import (
 
 var log = logger.Logger("badger")
 
+// ErrClosed is an error message returned when the datastore is no longer open
 var ErrClosed = errors.New("datastore closed")
 
+// Datastore satisfies the Datastore::Batching interface using badger
 type Datastore struct {
 	DB *badger.DB
 
@@ -307,7 +309,7 @@ func (d *Datastore) Query(q dsq.Query) (dsq.Results, error) {
 
 	txn := d.newImplicitTransaction(true)
 	// We cannot defer txn.Discard() here, as the txn must remain active while the iterator is open.
-	// https://github.com/dgraph-io/badger/commit/b1ad1e93e483bbfef123793ceedc9a7e34b09f79
+	// https://github.com/dgraph-io/badger/v2/commit/b1ad1e93e483bbfef123793ceedc9a7e34b09f79
 	// The closing logic in the query goprocess takes care of discarding the implicit transaction.
 	return txn.query(q)
 }
