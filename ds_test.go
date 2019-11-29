@@ -73,12 +73,10 @@ func TestQuery(t *testing.T) {
 	defer done()
 
 	addTestCases(t, d, testcases)
-	fmt.Println("test: running query")
 	rs, err := d.Query(dsq.Query{Prefix: "/a/"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	fmt.Println("test: finished running query")
 	expectMatches(t, []string{
 		"/a/b",
 		"/a/b/c",
@@ -88,12 +86,10 @@ func TestQuery(t *testing.T) {
 	}, rs)
 
 	// test offset and limit
-	fmt.Println("test: running second query")
 	rs, err = d.Query(dsq.Query{Prefix: "/a/", Offset: 2, Limit: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
-	fmt.Println("test: finished running second query")
 	expectMatches(t, []string{
 		"/a/b/d",
 		"/a/c",
