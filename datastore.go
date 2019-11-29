@@ -186,6 +186,7 @@ func (d *Datastore) newImplicitTransaction(readOnly bool) *txn {
 	return &txn{d, d.DB.NewTransaction(!readOnly), true}
 }
 
+// Put stores the value under the given key
 func (d *Datastore) Put(key ds.Key, value []byte) error {
 	d.closeLk.RLock()
 	defer d.closeLk.RUnlock()
@@ -203,6 +204,7 @@ func (d *Datastore) Put(key ds.Key, value []byte) error {
 	return txn.commit()
 }
 
+// PutWithTTL puts the value udner the given key for the specific duration before being GC'd
 func (d *Datastore) PutWithTTL(key ds.Key, value []byte, ttl time.Duration) error {
 	d.closeLk.RLock()
 	defer d.closeLk.RUnlock()
@@ -220,6 +222,7 @@ func (d *Datastore) PutWithTTL(key ds.Key, value []byte, ttl time.Duration) erro
 	return txn.commit()
 }
 
+// SetTTL is used to override the stored ttl for the given key
 func (d *Datastore) SetTTL(key ds.Key, ttl time.Duration) error {
 	d.closeLk.RLock()
 	defer d.closeLk.RUnlock()
@@ -237,6 +240,7 @@ func (d *Datastore) SetTTL(key ds.Key, ttl time.Duration) error {
 	return txn.commit()
 }
 
+// GetExpiration is used to get the ttl expiration time for the key
 func (d *Datastore) GetExpiration(key ds.Key) (time.Time, error) {
 	d.closeLk.RLock()
 	defer d.closeLk.RUnlock()
@@ -250,6 +254,7 @@ func (d *Datastore) GetExpiration(key ds.Key) (time.Time, error) {
 	return txn.getExpiration(key)
 }
 
+// Get returns the value associated with the key
 func (d *Datastore) Get(key ds.Key) (value []byte, err error) {
 	d.closeLk.RLock()
 	defer d.closeLk.RUnlock()
@@ -263,6 +268,7 @@ func (d *Datastore) Get(key ds.Key) (value []byte, err error) {
 	return txn.get(key)
 }
 
+// Has returns whether or not we have the given key in our datastore
 func (d *Datastore) Has(key ds.Key) (bool, error) {
 	d.closeLk.RLock()
 	defer d.closeLk.RUnlock()
@@ -276,6 +282,7 @@ func (d *Datastore) Has(key ds.Key) (bool, error) {
 	return txn.has(key)
 }
 
+// GetSize returns the size of value associated with the key
 func (d *Datastore) GetSize(key ds.Key) (size int, err error) {
 	d.closeLk.RLock()
 	defer d.closeLk.RUnlock()
@@ -289,6 +296,7 @@ func (d *Datastore) GetSize(key ds.Key) (size int, err error) {
 	return txn.getSize(key)
 }
 
+// Delete remove the key+value from our datastore
 func (d *Datastore) Delete(key ds.Key) error {
 	d.closeLk.RLock()
 	defer d.closeLk.RUnlock()
@@ -304,6 +312,7 @@ func (d *Datastore) Delete(key ds.Key) error {
 	return txn.commit()
 }
 
+// Query is used to perform a search of the keys and values in our datastore
 func (d *Datastore) Query(q dsq.Query) (dsq.Results, error) {
 	d.closeLk.RLock()
 	defer d.closeLk.RUnlock()
@@ -327,6 +336,7 @@ func (d *Datastore) DiskUsage() (uint64, error) {
 	return uint64(lsm + vlog), nil
 }
 
+// Close is used to close our datastore and cease operations.
 func (d *Datastore) Close() error {
 	d.closeOnce.Do(func() {
 		close(d.closing)
@@ -340,11 +350,13 @@ func (d *Datastore) Close() error {
 	return d.DB.Close()
 }
 
+// Batch is used to return a set of batchable transaction operatiosn
 func (d *Datastore) Batch() (ds.Batch, error) {
 	tx, _ := d.NewTransaction(false)
 	return tx, nil
 }
 
+// CollectGarbage removes garbage from our underlying datastore
 func (d *Datastore) CollectGarbage() (err error) {
 	// The idea is to keep calling DB.RunValueLogGC() till Badger no longer has any log files
 	// to GC(which would be indicated by an error, please refer to Badger GC docs).
