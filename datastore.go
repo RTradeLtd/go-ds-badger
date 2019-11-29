@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"strings"
 	"sync"
 	"time"
@@ -597,8 +598,6 @@ func (t *txn) query(q dsq.Query) (dsq.Results, error) {
 		defer func() {
 			t.ds.closeLk.RUnlock()
 			done <- true
-			close(done)
-			close(resultChan)
 		}()
 		if t.ds.closed {
 			return
@@ -693,16 +692,15 @@ func (t *txn) query(q dsq.Query) (dsq.Results, error) {
 	for {
 		select {
 		case <-done:
+			for len(resultChan) > 0 {
+				time.Sleep(time.Microsecond * time.Duration(rand.Intn(len(resultChan))))
+			}
 			goto FINISHED
-		case result, ok := <-resultChan:
+		case result := <-resultChan:
 			if result.Error != nil {
 				t.logger.Error("query result failure", zap.Error(result.Error))
 			}
 			entries = append(entries, result.Entry)
-			if !ok {
-				<-done
-				goto FINISHED
-			}
 		}
 	}
 FINISHED:
