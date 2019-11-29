@@ -1,3 +1,3 @@
 # go-ds-badger (V2)
 
-This is a fork of `ipfs/go-ds-badger` that is built using the v2 verison of `dgraph-io/badger`
+This is a fork of `ipfs/go-ds-badger` that is built using the v2 verison of `dgraph-io/badger` and without reliance on `jbenet/goprocess`.
