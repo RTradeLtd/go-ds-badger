@@ -594,9 +594,7 @@ func (t *txn) query(q dsq.Query) (dsq.Results, error) {
 	)
 	t.ds.closeLk.RLock()
 	go func() {
-		fmt.Println("starting search")
 		defer func() {
-			fmt.Println("finished search")
 			t.ds.closeLk.RUnlock()
 			done <- true
 			close(done)
@@ -616,7 +614,6 @@ func (t *txn) query(q dsq.Query) (dsq.Results, error) {
 		it.Rewind()
 		// skip to the offset
 		for skipped := 0; skipped < q.Offset && it.Valid(); it.Next() {
-			fmt.Println("first iteration run")
 			// On the happy path, we have no filters and we can go
 			// on our way.
 			if len(q.Filters) == 0 {
@@ -658,7 +655,6 @@ func (t *txn) query(q dsq.Query) (dsq.Results, error) {
 			}
 		}
 		for sent := 0; (q.Limit <= 0 || sent < q.Limit) && it.Valid(); it.Next() {
-			fmt.Println("second iteration run")
 			item := it.Item()
 			e := dsq.Entry{Key: string(item.Key())}
 			// Maybe get the value
@@ -694,25 +690,22 @@ func (t *txn) query(q dsq.Query) (dsq.Results, error) {
 			}
 		}
 	}()
-	fmt.Println("waiting for resutls")
 	for {
 		select {
+		case <-done:
+			goto FINISHED
 		case result, ok := <-resultChan:
-			fmt.Println("new result")
 			if result.Error != nil {
 				t.logger.Error("query result failure", zap.Error(result.Error))
 			}
 			entries = append(entries, result.Entry)
 			if !ok {
-				fmt.Println("result chan closed")
 				<-done
 				goto FINISHED
 			}
 		}
 	}
 FINISHED:
-	fmt.Println("finished waiting for results")
-	cancel()
 	return dsq.ResultsWithEntries(q, entries), nil
 }
 
