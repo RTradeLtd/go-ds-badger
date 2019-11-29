@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"math/rand"
 	"strings"
 	"sync"
@@ -12,7 +13,6 @@ import (
 	badger "github.com/dgraph-io/badger/v2"
 	ds "github.com/ipfs/go-datastore"
 	dsq "github.com/ipfs/go-datastore/query"
-	"go.uber.org/zap"
 )
 
 // ErrClosed is an error message returned when the datastore is no longer open
@@ -30,16 +30,13 @@ type Datastore struct {
 	gcDiscardRatio float64
 	gcSleep        time.Duration
 	gcInterval     time.Duration
-
-	logger *zap.Logger
 }
 
 // Implements the datastore.Txn interface, enabling transaction support for
 // the badger Datastore.
 type txn struct {
-	ds     *Datastore
-	txn    *badger.Txn
-	logger *zap.Logger
+	ds  *Datastore
+	txn *badger.Txn
 	// Whether this transaction has been implicitly created as a result of a direct Datastore
 	// method invocation.
 	implicit bool
@@ -86,7 +83,7 @@ var _ ds.GCDatastore = (*Datastore)(nil)
 // NewDatastore creates a new badger datastore.
 //
 // DO NOT set the Dir and/or ValuePath fields of opt, they will be set for you.
-func NewDatastore(path string, logger *zap.Logger, options *Options) (*Datastore, error) {
+func NewDatastore(path string, options *Options) (*Datastore, error) {
 	// Copy the options because we modify them.
 	var opt badger.Options
 	var gcDiscardRatio float64
@@ -127,7 +124,6 @@ func NewDatastore(path string, logger *zap.Logger, options *Options) (*Datastore
 		gcDiscardRatio: gcDiscardRatio,
 		gcSleep:        gcSleep,
 		gcInterval:     gcInterval,
-		logger:         logger.Named("badgerds"),
 	}
 
 	// Start the GC process if requested.
@@ -157,7 +153,7 @@ func (d *Datastore) periodicGC() {
 			case ErrClosed:
 				return
 			default:
-				d.logger.Error("gc cycle error", zap.Error(err))
+				log.Println("gc cycle error: ", err)
 				// Not much we can do on a random error but log it and continue.
 				gcTimeout.Reset(d.gcInterval)
 			}
@@ -177,13 +173,13 @@ func (d *Datastore) NewTransaction(readOnly bool) (ds.Txn, error) {
 		return nil, ErrClosed
 	}
 
-	return &txn{d, d.DB.NewTransaction(!readOnly), d.logger.Named("tx"), false}, nil
+	return &txn{d, d.DB.NewTransaction(!readOnly), false}, nil
 }
 
 // newImplicitTransaction creates a transaction marked as 'implicit'.
 // Implicit transactions are created by Datastore methods performing single operations.
 func (d *Datastore) newImplicitTransaction(readOnly bool) *txn {
-	return &txn{d, d.DB.NewTransaction(!readOnly), d.logger.Named("implicit.tx"), true}
+	return &txn{d, d.DB.NewTransaction(!readOnly), true}
 }
 
 // Put stores the value under the given key
@@ -541,9 +537,6 @@ func (t *txn) Query(q dsq.Query) (dsq.Results, error) {
 }
 
 func (t *txn) query(q dsq.Query) (dsq.Results, error) {
-	if t.logger == nil {
-		panic("tx logger is nil")
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	opt := badger.DefaultIteratorOptions
@@ -698,7 +691,7 @@ func (t *txn) query(q dsq.Query) (dsq.Results, error) {
 			goto FINISHED
 		case result := <-resultChan:
 			if result.Error != nil {
-				t.logger.Error("query result failure", zap.Error(result.Error))
+				log.Println("query result failure: ", result.Error)
 			}
 			entries = append(entries, result.Entry)
 		}
