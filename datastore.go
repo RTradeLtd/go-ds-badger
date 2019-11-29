@@ -694,14 +694,14 @@ func (t *txn) query(q dsq.Query) (dsq.Results, error) {
 	for {
 		select {
 		case result, ok := <-resultChan:
-			if !ok {
-				<-done
-				goto FINISHED
-			}
 			if result.Error != nil {
 				t.logger.Error("query result failure", zap.Error(result.Error))
 			}
 			entries = append(entries, result.Entry)
+			if !ok {
+				<-done
+				goto FINISHED
+			}
 		}
 	}
 FINISHED:
