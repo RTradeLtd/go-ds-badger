@@ -588,19 +588,20 @@ func (t *txn) query(q dsq.Query) (dsq.Results, error) {
 			return dsq.NaiveQueryApply(naiveQuery, res), nil
 		}
 	}
-	it := t.txn.NewIterator(opt)
-	t.ds.closeLk.RLock()
 	var (
+		it         = t.txn.NewIterator(opt)
 		done       = make(chan bool)
 		resultChan = make(chan dsq.Result)
 		entries    = make([]dsq.Entry, 0)
 	)
+	t.ds.closeLk.RLock()
 	go func() {
 		defer func() {
+			t.ds.closeLk.RUnlock()
 			done <- true
+			close(done)
 			close(resultChan)
 		}()
-		defer t.ds.closeLk.RUnlock()
 		if t.ds.closed {
 			return
 		}
