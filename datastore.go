@@ -704,12 +704,14 @@ func (t *txn) query(q dsq.Query) (dsq.Results, error) {
 			}
 			entries = append(entries, result.Entry)
 			if !ok {
+				fmt.Println("result chan closed")
 				<-done
 				goto FINISHED
 			}
 		}
 	}
 FINISHED:
+	fmt.Println("finished waiting for results")
 	cancel()
 	return dsq.ResultsWithEntries(q, entries), nil
 }
