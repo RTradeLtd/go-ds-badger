@@ -704,6 +704,7 @@ func (t *txn) query(q dsq.Query) (dsq.Results, error) {
 		}
 	}
 FINISHED:
+	cancel()
 	return dsq.ResultsWithEntries(q, entries), nil
 }
 
