@@ -111,8 +111,6 @@ func NewDatastore(path string, logger *zap.Logger, options *Options) (*Datastore
 
 	opt.Dir = path
 	opt.ValueDir = path
-	// TODO(bonedaddy): fix
-	//opt.Logger = log
 
 	kv, err := badger.Open(opt)
 	if err != nil {
