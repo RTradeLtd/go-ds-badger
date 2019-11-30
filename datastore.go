@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"sync"
 	"time"
 
 	badger "github.com/dgraph-io/badger/v2"
@@ -22,9 +21,8 @@ var ErrClosed = errors.New("datastore closed")
 type Datastore struct {
 	DB *badger.DB
 
-	closed    *abool.AtomicBool
-	closeOnce sync.Once
-	closing   chan struct{}
+	closed  *abool.AtomicBool
+	closing chan struct{}
 
 	gcDiscardRatio float64
 	gcSleep        time.Duration
