@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"math/rand"
 	"strings"
 	"sync"
 	"time"
@@ -633,9 +632,6 @@ func (t *txn) query(q dsq.Query) (dsq.Results, error) {
 	for {
 		select {
 		case <-done:
-			for len(resultChan) > 0 {
-				time.Sleep(time.Microsecond * time.Duration(rand.Intn(len(resultChan))))
-			}
 			goto FINISHED
 		case result := <-resultChan:
 			if result.Error != nil {
