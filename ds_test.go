@@ -305,6 +305,18 @@ func TestBatching(t *testing.T) {
 
 }
 
+func TestPutTTL(t *testing.T) {
+	d, done := newDS(t)
+	defer done()
+	if err := d.PutWithTTL(
+		ds.NewKey("misctest-1"),
+		[]byte(string("hello")),
+		time.Hour,
+	); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // Tests from basic_tests from go-datastore
 
 func TestBasicPutGet(t *testing.T) {
