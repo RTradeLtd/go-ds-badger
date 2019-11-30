@@ -289,6 +289,9 @@ func (d *Datastore) Delete(key ds.Key) error {
 
 // Query is used to perform a search of the keys and values in our datastore
 func (d *Datastore) Query(q dsq.Query) (dsq.Results, error) {
+	if d.closed.IsSet() {
+		return nil, ErrClosed
+	}
 	txn := d.newImplicitTransaction(true)
 	// We cannot defer txn.Discard() here, as the txn must remain active while the iterator is open.
 	// https://github.com/dgraph-io/badger/commit/b1ad1e93e483bbfef123793ceedc9a7e34b09f79
