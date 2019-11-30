@@ -311,15 +311,10 @@ func (d *Datastore) DiskUsage() (uint64, error) {
 
 // Close is used to close our datastore and cease operations.
 func (d *Datastore) Close() error {
-	d.closeOnce.Do(func() {
-		close(d.closing)
-	})
-	if d.closed.IsSet() {
-		return ErrClosed
-	}
 	if !d.closed.SetToIf(false, true) {
 		return ErrClosed
 	}
+	close(d.closing)
 	return d.DB.Close()
 }
 
