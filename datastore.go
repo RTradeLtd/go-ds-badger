@@ -19,7 +19,7 @@ var ErrClosed = errors.New("datastore closed")
 
 // Datastore satisfies the Datastore::Batching interface using badger
 type Datastore struct {
-	DB *badger.DB
+	db *badger.DB
 
 	closed  *abool.AtomicBool
 	closing chan struct{}
@@ -116,7 +116,7 @@ func NewDatastore(path string, options *Options) (*Datastore, error) {
 	}
 
 	ds := &Datastore{
-		DB:             kv,
+		db:             kv,
 		closed:         abool.New(),
 		closing:        make(chan struct{}),
 		gcDiscardRatio: gcDiscardRatio,
@@ -168,13 +168,13 @@ func (d *Datastore) NewTransaction(readOnly bool) (ds.Txn, error) {
 	if d.closed.IsSet() {
 		return nil, ErrClosed
 	}
-	return &txn{d, d.DB.NewTransaction(!readOnly), false}, nil
+	return &txn{d, d.db.NewTransaction(!readOnly), false}, nil
 }
 
 // newImplicitTransaction creates a transaction marked as 'implicit'.
 // Implicit transactions are created by Datastore methods performing single operations.
 func (d *Datastore) newImplicitTransaction(readOnly bool) *txn {
-	return &txn{d, d.DB.NewTransaction(!readOnly), true}
+	return &txn{d, d.db.NewTransaction(!readOnly), true}
 }
 
 // Put stores the value under the given key
@@ -303,7 +303,7 @@ func (d *Datastore) DiskUsage() (uint64, error) {
 	if d.closed.IsSet() {
 		return 0, ErrClosed
 	}
-	lsm, vlog := d.DB.Size()
+	lsm, vlog := d.db.Size()
 	return uint64(lsm + vlog), nil
 }
 
@@ -313,7 +313,7 @@ func (d *Datastore) Close() error {
 		return ErrClosed
 	}
 	close(d.closing)
-	return d.DB.Close()
+	return d.db.Close()
 }
 
 // Batch is used to return a set of batchable transaction operatiosn
@@ -341,7 +341,7 @@ func (d *Datastore) gcOnce() error {
 	if d.closed.IsSet() {
 		return ErrClosed
 	}
-	return d.DB.RunValueLogGC(d.gcDiscardRatio)
+	return d.db.RunValueLogGC(d.gcDiscardRatio)
 }
 
 var _ ds.Datastore = (*txn)(nil)
