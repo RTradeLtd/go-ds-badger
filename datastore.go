@@ -1,23 +1,24 @@
 package badger
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log"
+	"math/rand"
 	"strings"
 	"sync"
 	"time"
 
-	badger "github.com/dgraph-io/badger"
+	badger "github.com/dgraph-io/badger/v2"
 	ds "github.com/ipfs/go-datastore"
 	dsq "github.com/ipfs/go-datastore/query"
-	logger "github.com/ipfs/go-log"
-	goprocess "github.com/jbenet/goprocess"
 )
 
-var log = logger.Logger("badger")
-
+// ErrClosed is an error message returned when the datastore is no longer open
 var ErrClosed = errors.New("datastore closed")
 
+// Datastore satisfies the Datastore::Batching interface using badger
 type Datastore struct {
 	DB *badger.DB
 
@@ -36,7 +37,6 @@ type Datastore struct {
 type txn struct {
 	ds  *Datastore
 	txn *badger.Txn
-
 	// Whether this transaction has been implicitly created as a result of a direct Datastore
 	// method invocation.
 	implicit bool
@@ -109,7 +109,6 @@ func NewDatastore(path string, options *Options) (*Datastore, error) {
 
 	opt.Dir = path
 	opt.ValueDir = path
-	opt.Logger = log
 
 	kv, err := badger.Open(opt)
 	if err != nil {
@@ -154,7 +153,7 @@ func (d *Datastore) periodicGC() {
 			case ErrClosed:
 				return
 			default:
-				log.Errorf("error during a GC cycle: %s", err)
+				log.Println("gc cycle error: ", err)
 				// Not much we can do on a random error but log it and continue.
 				gcTimeout.Reset(d.gcInterval)
 			}
@@ -183,6 +182,7 @@ func (d *Datastore) newImplicitTransaction(readOnly bool) *txn {
 	return &txn{d, d.DB.NewTransaction(!readOnly), true}
 }
 
+// Put stores the value under the given key
 func (d *Datastore) Put(key ds.Key, value []byte) error {
 	d.closeLk.RLock()
 	defer d.closeLk.RUnlock()
@@ -200,6 +200,7 @@ func (d *Datastore) Put(key ds.Key, value []byte) error {
 	return txn.commit()
 }
 
+// PutWithTTL puts the value udner the given key for the specific duration before being GC'd
 func (d *Datastore) PutWithTTL(key ds.Key, value []byte, ttl time.Duration) error {
 	d.closeLk.RLock()
 	defer d.closeLk.RUnlock()
@@ -217,6 +218,7 @@ func (d *Datastore) PutWithTTL(key ds.Key, value []byte, ttl time.Duration) erro
 	return txn.commit()
 }
 
+// SetTTL is used to override the stored ttl for the given key
 func (d *Datastore) SetTTL(key ds.Key, ttl time.Duration) error {
 	d.closeLk.RLock()
 	defer d.closeLk.RUnlock()
@@ -234,6 +236,7 @@ func (d *Datastore) SetTTL(key ds.Key, ttl time.Duration) error {
 	return txn.commit()
 }
 
+// GetExpiration is used to get the ttl expiration time for the key
 func (d *Datastore) GetExpiration(key ds.Key) (time.Time, error) {
 	d.closeLk.RLock()
 	defer d.closeLk.RUnlock()
@@ -247,6 +250,7 @@ func (d *Datastore) GetExpiration(key ds.Key) (time.Time, error) {
 	return txn.getExpiration(key)
 }
 
+// Get returns the value associated with the key
 func (d *Datastore) Get(key ds.Key) (value []byte, err error) {
 	d.closeLk.RLock()
 	defer d.closeLk.RUnlock()
@@ -260,6 +264,7 @@ func (d *Datastore) Get(key ds.Key) (value []byte, err error) {
 	return txn.get(key)
 }
 
+// Has returns whether or not we have the given key in our datastore
 func (d *Datastore) Has(key ds.Key) (bool, error) {
 	d.closeLk.RLock()
 	defer d.closeLk.RUnlock()
@@ -273,6 +278,7 @@ func (d *Datastore) Has(key ds.Key) (bool, error) {
 	return txn.has(key)
 }
 
+// GetSize returns the size of value associated with the key
 func (d *Datastore) GetSize(key ds.Key) (size int, err error) {
 	d.closeLk.RLock()
 	defer d.closeLk.RUnlock()
@@ -286,6 +292,7 @@ func (d *Datastore) GetSize(key ds.Key) (size int, err error) {
 	return txn.getSize(key)
 }
 
+// Delete remove the key+value from our datastore
 func (d *Datastore) Delete(key ds.Key) error {
 	d.closeLk.RLock()
 	defer d.closeLk.RUnlock()
@@ -301,6 +308,7 @@ func (d *Datastore) Delete(key ds.Key) error {
 	return txn.commit()
 }
 
+// Query is used to perform a search of the keys and values in our datastore
 func (d *Datastore) Query(q dsq.Query) (dsq.Results, error) {
 	d.closeLk.RLock()
 	defer d.closeLk.RUnlock()
@@ -324,6 +332,7 @@ func (d *Datastore) DiskUsage() (uint64, error) {
 	return uint64(lsm + vlog), nil
 }
 
+// Close is used to close our datastore and cease operations.
 func (d *Datastore) Close() error {
 	d.closeOnce.Do(func() {
 		close(d.closing)
@@ -337,11 +346,13 @@ func (d *Datastore) Close() error {
 	return d.DB.Close()
 }
 
+// Batch is used to return a set of batchable transaction operatiosn
 func (d *Datastore) Batch() (ds.Batch, error) {
 	tx, _ := d.NewTransaction(false)
 	return tx, nil
 }
 
+// CollectGarbage removes garbage from our underlying datastore
 func (d *Datastore) CollectGarbage() (err error) {
 	// The idea is to keep calling DB.RunValueLogGC() till Badger no longer has any log files
 	// to GC(which would be indicated by an error, please refer to Badger GC docs).
@@ -526,6 +537,8 @@ func (t *txn) Query(q dsq.Query) (dsq.Results, error) {
 }
 
 func (t *txn) query(q dsq.Query) (dsq.Results, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	opt := badger.DefaultIteratorOptions
 	opt.PrefetchValues = !q.KeysOnly
 	opt.Prefix = []byte(q.Prefix)
@@ -567,41 +580,30 @@ func (t *txn) query(q dsq.Query) (dsq.Results, error) {
 			return dsq.NaiveQueryApply(naiveQuery, res), nil
 		}
 	}
-
-	it := t.txn.NewIterator(opt)
-	qrb := dsq.NewResultBuilder(q)
-	qrb.Process.Go(func(worker goprocess.Process) {
-		t.ds.closeLk.RLock()
-		closedEarly := false
+	var (
+		it         = t.txn.NewIterator(opt)
+		done       = make(chan bool)
+		resultChan = make(chan dsq.Result)
+		entries    = make([]dsq.Entry, 0)
+	)
+	t.ds.closeLk.RLock()
+	go func() {
 		defer func() {
 			t.ds.closeLk.RUnlock()
-			if closedEarly {
-				select {
-				case qrb.Output <- dsq.Result{
-					Error: ErrClosed,
-				}:
-				case <-qrb.Process.Closing():
-				}
-			}
-
+			done <- true
 		}()
 		if t.ds.closed {
-			closedEarly = true
 			return
 		}
-
 		// this iterator is part of an implicit transaction, so when
 		// we're done we must discard the transaction. It's safe to
 		// discard the txn it because it contains the iterator only.
 		if t.implicit {
 			defer t.discard()
 		}
-
 		defer it.Close()
-
 		// All iterators must be started by rewinding.
 		it.Rewind()
-
 		// skip to the offset
 		for skipped := 0; skipped < q.Offset && it.Valid(); it.Next() {
 			// On the happy path, we have no filters and we can go
@@ -610,16 +612,13 @@ func (t *txn) query(q dsq.Query) (dsq.Results, error) {
 				skipped++
 				continue
 			}
-
 			// On the sad path, we need to apply filters before
 			// counting the item as "skipped" as the offset comes
 			// _after_ the filter.
 			item := it.Item()
-
 			matches := true
 			check := func(value []byte) error {
 				e := dsq.Entry{Key: string(item.Key()), Value: value}
-
 				// Only calculate expirations if we need them.
 				if q.ReturnExpirations {
 					e.Expiration = expires(item)
@@ -627,7 +626,6 @@ func (t *txn) query(q dsq.Query) (dsq.Results, error) {
 				matches = filter(q.Filters, e)
 				return nil
 			}
-
 			// Maybe check with the value, only if we need it.
 			var err error
 			if q.KeysOnly {
@@ -635,14 +633,12 @@ func (t *txn) query(q dsq.Query) (dsq.Results, error) {
 			} else {
 				err = item.Value(check)
 			}
-
 			if err != nil {
 				select {
-				case qrb.Output <- dsq.Result{Error: err}:
+				case resultChan <- dsq.Result{Error: err}:
 				case <-t.ds.closing: // datastore closing.
-					closedEarly = true
 					return
-				case <-worker.Closing(): // client told us to close early
+				case <-ctx.Done():
 					return
 				}
 			}
@@ -650,11 +646,9 @@ func (t *txn) query(q dsq.Query) (dsq.Results, error) {
 				skipped++
 			}
 		}
-
 		for sent := 0; (q.Limit <= 0 || sent < q.Limit) && it.Valid(); it.Next() {
 			item := it.Item()
 			e := dsq.Entry{Key: string(item.Key())}
-
 			// Maybe get the value
 			var result dsq.Result
 			if !q.KeysOnly {
@@ -679,20 +673,31 @@ func (t *txn) query(q dsq.Query) (dsq.Results, error) {
 			}
 
 			select {
-			case qrb.Output <- result:
+			case resultChan <- result:
 				sent++
 			case <-t.ds.closing: // datastore closing.
-				closedEarly = true
 				return
-			case <-worker.Closing(): // client told us to close early
+			case <-ctx.Done():
 				return
 			}
 		}
-	})
-
-	go qrb.Process.CloseAfterChildren() //nolint
-
-	return qrb.Results(), nil
+	}()
+	for {
+		select {
+		case <-done:
+			for len(resultChan) > 0 {
+				time.Sleep(time.Microsecond * time.Duration(rand.Intn(len(resultChan))))
+			}
+			goto FINISHED
+		case result := <-resultChan:
+			if result.Error != nil {
+				log.Println("query result failure: ", result.Error)
+			}
+			entries = append(entries, result.Entry)
+		}
+	}
+FINISHED:
+	return dsq.ResultsWithEntries(q, entries), nil
 }
 
 func (t *txn) Commit() error {
