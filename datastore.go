@@ -275,14 +275,15 @@ func (d *Datastore) GetSize(key ds.Key) (size int, err error) {
 
 // Delete remove the key+value from our datastore
 func (d *Datastore) Delete(key ds.Key) error {
+	if d.closed.IsSet() {
+		return ErrClosed
+	}
 	txn := d.newImplicitTransaction(false)
 	defer txn.discard()
-
 	err := txn.delete(key)
 	if err != nil {
 		return err
 	}
-
 	return txn.commit()
 }
 
