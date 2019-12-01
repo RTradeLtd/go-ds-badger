@@ -305,6 +305,67 @@ func TestBatching(t *testing.T) {
 
 }
 
+func TestPutTTL(t *testing.T) {
+	d, done := newDS(t)
+	defer done()
+	if err := d.PutWithTTL(
+		ds.NewKey("misctest-1"),
+		[]byte(string("hello")),
+		time.Hour,
+	); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestClose(t *testing.T) {
+	path, err := ioutil.TempDir(os.TempDir(), "testing_badger_")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := NewDatastore(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(path)
+	d.Close()
+	if _, err := d.NewTransaction(false); err == nil {
+		t.Fatal("error expected")
+	}
+	if err := d.Put(ds.Key{}, nil); err == nil {
+		t.Fatal("error expected")
+	}
+	if err := d.PutWithTTL(ds.Key{}, nil, 0); err == nil {
+		t.Fatal("error expected")
+	}
+	if err := d.SetTTL(ds.Key{}, 0); err == nil {
+		t.Fatal("error expected")
+	}
+	if _, err := d.GetExpiration(ds.Key{}); err == nil {
+		t.Fatal("error expected")
+	}
+	if _, err := d.Get(ds.Key{}); err == nil {
+		t.Fatal("error expected")
+	}
+	if _, err := d.Has(ds.Key{}); err == nil {
+		t.Fatal("error expected")
+	}
+	if _, err := d.GetSize(ds.Key{}); err == nil {
+		t.Fatal("error expected")
+	}
+	if err := d.Delete(ds.Key{}); err == nil {
+		t.Fatal("error expected")
+	}
+	if _, err := d.Query(dsq.Query{}); err == nil {
+		t.Fatal("error expected")
+	}
+	if _, err := d.DiskUsage(); err == nil {
+		t.Fatal("error expected")
+	}
+	if err := d.Close(); err == nil {
+		t.Fatal("error expected")
+	}
+}
+
 // Tests from basic_tests from go-datastore
 
 func TestBasicPutGet(t *testing.T) {
