@@ -5,14 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"math/rand"
 	"strings"
-	"sync"
 	"time"
 
 	badger "github.com/dgraph-io/badger/v2"
 	ds "github.com/ipfs/go-datastore"
 	dsq "github.com/ipfs/go-datastore/query"
+	"github.com/tevino/abool"
 )
 
 // ErrClosed is an error message returned when the datastore is no longer open
@@ -20,12 +19,10 @@ var ErrClosed = errors.New("datastore closed")
 
 // Datastore satisfies the Datastore::Batching interface using badger
 type Datastore struct {
-	DB *badger.DB
+	db *badger.DB
 
-	closeLk   sync.RWMutex
-	closed    bool
-	closeOnce sync.Once
-	closing   chan struct{}
+	closed  *abool.AtomicBool
+	closing chan struct{}
 
 	gcDiscardRatio float64
 	gcSleep        time.Duration
@@ -119,7 +116,8 @@ func NewDatastore(path string, options *Options) (*Datastore, error) {
 	}
 
 	ds := &Datastore{
-		DB:             kv,
+		db:             kv,
+		closed:         abool.New(),
 		closing:        make(chan struct{}),
 		gcDiscardRatio: gcDiscardRatio,
 		gcSleep:        gcSleep,
@@ -167,29 +165,23 @@ func (d *Datastore) periodicGC() {
 // can be mutated without incurring changes to the underlying Datastore until
 // the transaction is Committed.
 func (d *Datastore) NewTransaction(readOnly bool) (ds.Txn, error) {
-	d.closeLk.RLock()
-	defer d.closeLk.RUnlock()
-	if d.closed {
+	if d.closed.IsSet() {
 		return nil, ErrClosed
 	}
-
-	return &txn{d, d.DB.NewTransaction(!readOnly), false}, nil
+	return &txn{d, d.db.NewTransaction(!readOnly), false}, nil
 }
 
 // newImplicitTransaction creates a transaction marked as 'implicit'.
 // Implicit transactions are created by Datastore methods performing single operations.
 func (d *Datastore) newImplicitTransaction(readOnly bool) *txn {
-	return &txn{d, d.DB.NewTransaction(!readOnly), true}
+	return &txn{d, d.db.NewTransaction(!readOnly), true}
 }
 
 // Put stores the value under the given key
 func (d *Datastore) Put(key ds.Key, value []byte) error {
-	d.closeLk.RLock()
-	defer d.closeLk.RUnlock()
-	if d.closed {
+	if d.closed.IsSet() {
 		return ErrClosed
 	}
-
 	txn := d.newImplicitTransaction(false)
 	defer txn.discard()
 
@@ -202,12 +194,9 @@ func (d *Datastore) Put(key ds.Key, value []byte) error {
 
 // PutWithTTL puts the value udner the given key for the specific duration before being GC'd
 func (d *Datastore) PutWithTTL(key ds.Key, value []byte, ttl time.Duration) error {
-	d.closeLk.RLock()
-	defer d.closeLk.RUnlock()
-	if d.closed {
+	if d.closed.IsSet() {
 		return ErrClosed
 	}
-
 	txn := d.newImplicitTransaction(false)
 	defer txn.discard()
 
@@ -220,9 +209,7 @@ func (d *Datastore) PutWithTTL(key ds.Key, value []byte, ttl time.Duration) erro
 
 // SetTTL is used to override the stored ttl for the given key
 func (d *Datastore) SetTTL(key ds.Key, ttl time.Duration) error {
-	d.closeLk.RLock()
-	defer d.closeLk.RUnlock()
-	if d.closed {
+	if d.closed.IsSet() {
 		return ErrClosed
 	}
 
@@ -238,9 +225,7 @@ func (d *Datastore) SetTTL(key ds.Key, ttl time.Duration) error {
 
 // GetExpiration is used to get the ttl expiration time for the key
 func (d *Datastore) GetExpiration(key ds.Key) (time.Time, error) {
-	d.closeLk.RLock()
-	defer d.closeLk.RUnlock()
-	if d.closed {
+	if d.closed.IsSet() {
 		return time.Time{}, ErrClosed
 	}
 
@@ -252,9 +237,7 @@ func (d *Datastore) GetExpiration(key ds.Key) (time.Time, error) {
 
 // Get returns the value associated with the key
 func (d *Datastore) Get(key ds.Key) (value []byte, err error) {
-	d.closeLk.RLock()
-	defer d.closeLk.RUnlock()
-	if d.closed {
+	if d.closed.IsSet() {
 		return nil, ErrClosed
 	}
 
@@ -266,9 +249,7 @@ func (d *Datastore) Get(key ds.Key) (value []byte, err error) {
 
 // Has returns whether or not we have the given key in our datastore
 func (d *Datastore) Has(key ds.Key) (bool, error) {
-	d.closeLk.RLock()
-	defer d.closeLk.RUnlock()
-	if d.closed {
+	if d.closed.IsSet() {
 		return false, ErrClosed
 	}
 
@@ -280,9 +261,7 @@ func (d *Datastore) Has(key ds.Key) (bool, error) {
 
 // GetSize returns the size of value associated with the key
 func (d *Datastore) GetSize(key ds.Key) (size int, err error) {
-	d.closeLk.RLock()
-	defer d.closeLk.RUnlock()
-	if d.closed {
+	if d.closed.IsSet() {
 		return -1, ErrClosed
 	}
 
@@ -294,25 +273,23 @@ func (d *Datastore) GetSize(key ds.Key) (size int, err error) {
 
 // Delete remove the key+value from our datastore
 func (d *Datastore) Delete(key ds.Key) error {
-	d.closeLk.RLock()
-	defer d.closeLk.RUnlock()
-
+	if d.closed.IsSet() {
+		return ErrClosed
+	}
 	txn := d.newImplicitTransaction(false)
 	defer txn.discard()
-
 	err := txn.delete(key)
 	if err != nil {
 		return err
 	}
-
 	return txn.commit()
 }
 
 // Query is used to perform a search of the keys and values in our datastore
 func (d *Datastore) Query(q dsq.Query) (dsq.Results, error) {
-	d.closeLk.RLock()
-	defer d.closeLk.RUnlock()
-
+	if d.closed.IsSet() {
+		return nil, ErrClosed
+	}
 	txn := d.newImplicitTransaction(true)
 	// We cannot defer txn.Discard() here, as the txn must remain active while the iterator is open.
 	// https://github.com/dgraph-io/badger/commit/b1ad1e93e483bbfef123793ceedc9a7e34b09f79
@@ -323,27 +300,20 @@ func (d *Datastore) Query(q dsq.Query) (dsq.Results, error) {
 // DiskUsage implements the PersistentDatastore interface.
 // It returns the sum of lsm and value log files sizes in bytes.
 func (d *Datastore) DiskUsage() (uint64, error) {
-	d.closeLk.RLock()
-	defer d.closeLk.RUnlock()
-	if d.closed {
+	if d.closed.IsSet() {
 		return 0, ErrClosed
 	}
-	lsm, vlog := d.DB.Size()
+	lsm, vlog := d.db.Size()
 	return uint64(lsm + vlog), nil
 }
 
 // Close is used to close our datastore and cease operations.
 func (d *Datastore) Close() error {
-	d.closeOnce.Do(func() {
-		close(d.closing)
-	})
-	d.closeLk.Lock()
-	defer d.closeLk.Unlock()
-	if d.closed {
+	if !d.closed.SetToIf(false, true) {
 		return ErrClosed
 	}
-	d.closed = true
-	return d.DB.Close()
+	close(d.closing)
+	return d.db.Close()
 }
 
 // Batch is used to return a set of batchable transaction operatiosn
@@ -368,21 +338,17 @@ func (d *Datastore) CollectGarbage() (err error) {
 }
 
 func (d *Datastore) gcOnce() error {
-	d.closeLk.RLock()
-	defer d.closeLk.RUnlock()
-	if d.closed {
+	if d.closed.IsSet() {
 		return ErrClosed
 	}
-	return d.DB.RunValueLogGC(d.gcDiscardRatio)
+	return d.db.RunValueLogGC(d.gcDiscardRatio)
 }
 
 var _ ds.Datastore = (*txn)(nil)
 var _ ds.TTLDatastore = (*txn)(nil)
 
 func (t *txn) Put(key ds.Key, value []byte) error {
-	t.ds.closeLk.RLock()
-	defer t.ds.closeLk.RUnlock()
-	if t.ds.closed {
+	if t.ds.closed.IsSet() {
 		return ErrClosed
 	}
 	return t.put(key, value)
@@ -393,9 +359,7 @@ func (t *txn) put(key ds.Key, value []byte) error {
 }
 
 func (t *txn) PutWithTTL(key ds.Key, value []byte, ttl time.Duration) error {
-	t.ds.closeLk.RLock()
-	defer t.ds.closeLk.RUnlock()
-	if t.ds.closed {
+	if t.ds.closed.IsSet() {
 		return ErrClosed
 	}
 	return t.putWithTTL(key, value, ttl)
@@ -406,12 +370,9 @@ func (t *txn) putWithTTL(key ds.Key, value []byte, ttl time.Duration) error {
 }
 
 func (t *txn) GetExpiration(key ds.Key) (time.Time, error) {
-	t.ds.closeLk.RLock()
-	defer t.ds.closeLk.RUnlock()
-	if t.ds.closed {
+	if t.ds.closed.IsSet() {
 		return time.Time{}, ErrClosed
 	}
-
 	return t.getExpiration(key)
 }
 
@@ -426,12 +387,9 @@ func (t *txn) getExpiration(key ds.Key) (time.Time, error) {
 }
 
 func (t *txn) SetTTL(key ds.Key, ttl time.Duration) error {
-	t.ds.closeLk.RLock()
-	defer t.ds.closeLk.RUnlock()
-	if t.ds.closed {
+	if t.ds.closed.IsSet() {
 		return ErrClosed
 	}
-
 	return t.setTTL(key, ttl)
 }
 
@@ -447,12 +405,9 @@ func (t *txn) setTTL(key ds.Key, ttl time.Duration) error {
 }
 
 func (t *txn) Get(key ds.Key) ([]byte, error) {
-	t.ds.closeLk.RLock()
-	defer t.ds.closeLk.RUnlock()
-	if t.ds.closed {
+	if t.ds.closed.IsSet() {
 		return nil, ErrClosed
 	}
-
 	return t.get(key)
 }
 
@@ -469,12 +424,9 @@ func (t *txn) get(key ds.Key) ([]byte, error) {
 }
 
 func (t *txn) Has(key ds.Key) (bool, error) {
-	t.ds.closeLk.RLock()
-	defer t.ds.closeLk.RUnlock()
-	if t.ds.closed {
+	if t.ds.closed.IsSet() {
 		return false, ErrClosed
 	}
-
 	return t.has(key)
 }
 
@@ -491,12 +443,9 @@ func (t *txn) has(key ds.Key) (bool, error) {
 }
 
 func (t *txn) GetSize(key ds.Key) (int, error) {
-	t.ds.closeLk.RLock()
-	defer t.ds.closeLk.RUnlock()
-	if t.ds.closed {
+	if t.ds.closed.IsSet() {
 		return -1, ErrClosed
 	}
-
 	return t.getSize(key)
 }
 
@@ -513,12 +462,9 @@ func (t *txn) getSize(key ds.Key) (int, error) {
 }
 
 func (t *txn) Delete(key ds.Key) error {
-	t.ds.closeLk.RLock()
-	defer t.ds.closeLk.RUnlock()
-	if t.ds.closed {
+	if t.ds.closed.IsSet() {
 		return ErrClosed
 	}
-
 	return t.delete(key)
 }
 
@@ -527,12 +473,9 @@ func (t *txn) delete(key ds.Key) error {
 }
 
 func (t *txn) Query(q dsq.Query) (dsq.Results, error) {
-	t.ds.closeLk.RLock()
-	defer t.ds.closeLk.RUnlock()
-	if t.ds.closed {
+	if t.ds.closed.IsSet() {
 		return nil, ErrClosed
 	}
-
 	return t.query(q)
 }
 
@@ -586,13 +529,11 @@ func (t *txn) query(q dsq.Query) (dsq.Results, error) {
 		resultChan = make(chan dsq.Result)
 		entries    = make([]dsq.Entry, 0)
 	)
-	t.ds.closeLk.RLock()
 	go func() {
 		defer func() {
-			t.ds.closeLk.RUnlock()
 			done <- true
 		}()
-		if t.ds.closed {
+		if t.ds.closed.IsSet() {
 			return
 		}
 		// this iterator is part of an implicit transaction, so when
@@ -636,7 +577,7 @@ func (t *txn) query(q dsq.Query) (dsq.Results, error) {
 			if err != nil {
 				select {
 				case resultChan <- dsq.Result{Error: err}:
-				case <-t.ds.closing: // datastore closing.
+				case <-t.ds.closing:
 					return
 				case <-ctx.Done():
 					return
@@ -677,9 +618,9 @@ func (t *txn) query(q dsq.Query) (dsq.Results, error) {
 			select {
 			case resultChan <- result:
 				sent++
-			case <-t.ds.closing: // datastore closing.
-				return
 			case <-ctx.Done():
+				return
+			case <-t.ds.closing:
 				return
 			}
 		}
@@ -687,9 +628,6 @@ func (t *txn) query(q dsq.Query) (dsq.Results, error) {
 	for {
 		select {
 		case <-done:
-			for len(resultChan) > 0 {
-				time.Sleep(time.Microsecond * time.Duration(rand.Intn(len(resultChan))))
-			}
 			goto FINISHED
 		case result := <-resultChan:
 			if result.Error != nil {
@@ -703,12 +641,9 @@ FINISHED:
 }
 
 func (t *txn) Commit() error {
-	t.ds.closeLk.RLock()
-	defer t.ds.closeLk.RUnlock()
-	if t.ds.closed {
+	if t.ds.closed.IsSet() {
 		return ErrClosed
 	}
-
 	return t.commit()
 }
 
@@ -718,9 +653,7 @@ func (t *txn) commit() error {
 
 // Alias to commit
 func (t *txn) Close() error {
-	t.ds.closeLk.RLock()
-	defer t.ds.closeLk.RUnlock()
-	if t.ds.closed {
+	if t.ds.closed.IsSet() {
 		return ErrClosed
 	}
 	return t.close()
@@ -731,12 +664,9 @@ func (t *txn) close() error {
 }
 
 func (t *txn) Discard() {
-	t.ds.closeLk.RLock()
-	defer t.ds.closeLk.RUnlock()
-	if t.ds.closed {
+	if t.ds.closed.IsSet() {
 		return
 	}
-
 	t.discard()
 }
 
