@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ipfs/go-datastore"
 	ds "github.com/ipfs/go-datastore"
 	dsq "github.com/ipfs/go-datastore/query"
 	dstest "github.com/ipfs/go-datastore/test"
@@ -48,6 +49,23 @@ func newDS(t *testing.T) (*Datastore, func()) {
 	}
 }
 
+func newDSSync(t *testing.T, sync bool) (*Datastore, func()) {
+	path, err := ioutil.TempDir(os.TempDir(), "testing_badger_")
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := DefaultOptions
+	opts.SyncWrites = sync
+	d, err := NewDatastore(path, &opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d, func() {
+		d.Close()
+		os.RemoveAll(path)
+	}
+}
+
 func addTestCases(t *testing.T, d *Datastore, testcases map[string]string) {
 	for k, v := range testcases {
 		dsk := ds.NewKey(k)
@@ -67,6 +85,46 @@ func addTestCases(t *testing.T, d *Datastore, testcases map[string]string) {
 		}
 	}
 }
+
+func Test_Sync(t *testing.T) {
+	type args struct {
+		sync bool
+	}
+	tests := []struct {
+		name string
+		args args
+	}{
+		{"With-Sync", args{true}},
+		{"Without-Sync", args{false}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ds, done := newDSSync(t, tt.args.sync)
+			if ds.syncWrites != tt.args.sync {
+				t.Fatal("bad sync writes setting")
+			}
+			if err := ds.Sync(datastore.NewKey("notneeded")); err != nil {
+				t.Fatal(err)
+			}
+			txxn, err := ds.NewTransaction(true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ttxn, ok := txxn.(*txn)
+			if !ok {
+				t.Fatal("bad type")
+			}
+			if err := ttxn.Sync(datastore.NewKey("hmm")); err != nil {
+				t.Fatal(err)
+			}
+			done()
+			if err := ttxn.Sync(datastore.NewKey("hmm")); err == nil {
+				t.Fatal("error expected")
+			}
+		})
+	}
+}
+
 func TestQuery(t *testing.T) {
 	d, done := newDS(t)
 	defer done()
@@ -359,6 +417,9 @@ func TestClose(t *testing.T) {
 		t.Fatal("error expected")
 	}
 	if _, err := d.DiskUsage(); err == nil {
+		t.Fatal("error expected")
+	}
+	if err := d.Sync(datastore.NewKey("hmm")); err == nil {
 		t.Fatal("error expected")
 	}
 	if err := d.Close(); err == nil {
