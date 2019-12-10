@@ -195,6 +195,8 @@ func (d *Datastore) Put(key ds.Key, value []byte) error {
 	return txn.commit()
 }
 
+// Sync is used to manually trigger syncing db contents to disk.
+// This call is only usable when synchronous writes aren't enabled
 func (d *Datastore) Sync(prefix ds.Key) error {
 	if d.closed.IsSet() {
 		return ErrClosed
