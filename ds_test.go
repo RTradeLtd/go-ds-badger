@@ -54,9 +54,9 @@ func newDSSync(t *testing.T, sync bool) (*Datastore, func()) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	opts := &DefaultOptions
+	opts := DefaultOptions
 	opts.SyncWrites = sync
-	d, err := NewDatastore(path, opts)
+	d, err := NewDatastore(path, &opts)
 	if err != nil {
 		t.Fatal(err)
 	}
